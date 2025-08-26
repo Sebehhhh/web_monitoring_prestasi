@@ -10,27 +10,63 @@ use App\Models\KategoriPrestasi;
 use App\Models\TingkatPenghargaan;
 use App\Models\Ekstrakurikuler;
 use App\Models\Notification;
+use App\Models\TahunAjaran;
+use App\Models\Kelas;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Carbon;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\PrestasiReportExport;
 
 class PrestasiSiswaController extends Controller
 {
     public function index(Request $request)
     {
-        $query = PrestasiSiswa::with(['siswa', 'kategori', 'tingkat', 'ekskul', 'creator', 'validator'])
+        $query = PrestasiSiswa::with(['siswa.kelas', 'kategori', 'tingkat', 'ekskul', 'creator', 'validator'])
             ->orderByDesc('created_at');
 
-        // FILTER KATEGORI
+        // ADVANCED FILTERS
+        
+        // Filter by Tahun Ajaran
+        if ($request->filled('tahun_ajaran')) {
+            $query->where('id_tahun_ajaran', $request->tahun_ajaran);
+        }
+        
+        // Filter by Kelas
+        if ($request->filled('kelas')) {
+            $query->whereHas('siswa', function($q) use ($request) {
+                $q->where('id_kelas', $request->kelas);
+            });
+        }
+        
+        // Filter by Siswa
+        if ($request->filled('siswa')) {
+            $query->where('id_siswa', $request->siswa);
+        }
+        
+        // Filter by Status
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        // Filter by Kategori
         if ($request->filled('kategori')) {
             $query->where('id_kategori_prestasi', $request->kategori);
         }
-        // FILTER TINGKAT
+        
+        // Filter by Tingkat
         if ($request->filled('tingkat')) {
             $query->where('id_tingkat_penghargaan', $request->tingkat);
         }
-        // FILTER RANGE TANGGAL
+        
+        // Filter by Ekstrakurikuler
+        if ($request->filled('ekstrakurikuler')) {
+            $query->where('id_ekskul', $request->ekstrakurikuler);
+        }
+        
+        // Filter by Date Range
         if ($request->filled('from')) {
             $query->whereDate('tanggal_prestasi', '>=', $request->from);
         }
@@ -38,14 +74,26 @@ class PrestasiSiswaController extends Controller
             $query->whereDate('tanggal_prestasi', '<=', $request->to);
         }
 
-        $prestasi = $query->paginate(10)->appends($request->except('page')); // biar pagination tetap bawa filter
+        $prestasi = $query->paginate(15)->appends($request->except('page'));
 
-        $siswa    = Siswa::pluck('nama', 'id');
+        // Data for dropdowns
+        $siswa = Siswa::with('kelas')->get();
         $kategori = KategoriPrestasi::pluck('nama_kategori', 'id');
-        $tingkat  = TingkatPenghargaan::pluck('tingkat', 'id');
-        $ekskul   = Ekstrakurikuler::pluck('nama', 'id');
+        $tingkat = TingkatPenghargaan::pluck('tingkat', 'id');
+        $ekskul = Ekstrakurikuler::pluck('nama', 'id');
+        
+        // Additional data for advanced filtering
+        $tahunAjarans = TahunAjaran::orderBy('nama_tahun_ajaran', 'desc')
+                                  ->orderBy('semester', 'desc')
+                                  ->get();
+        $kelasList = Kelas::orderBy('nama_kelas')->get();
+        $siswaList = Siswa::with('kelas')->orderBy('nama')->get();
+        $ekstrakurikulers = Ekstrakurikuler::orderBy('nama')->get();
 
-        return view('admin.prestasi_siswa.index', compact('prestasi', 'siswa', 'kategori', 'tingkat', 'ekskul'));
+        return view('admin.prestasi_siswa.index', compact(
+            'prestasi', 'siswa', 'kategori', 'tingkat', 'ekskul',
+            'tahunAjarans', 'kelasList', 'siswaList', 'ekstrakurikulers'
+        ));
     }
 
     public function store(Request $request)
@@ -320,5 +368,234 @@ class PrestasiSiswaController extends Controller
 
         $pdf = Pdf::loadView('admin.prestasi_siswa.cetak', $data);
         return $pdf->stream('rekap-prestasi-' . now()->format('Ymd-His') . '.pdf');
+    }
+
+    /**
+     * Get analytics data for prestasi overview
+     */
+    public function getAnalyticsData(Request $request)
+    {
+        $tahunAjaran = $request->get('tahun_ajaran', 'all');
+        
+        // Multi-year comparison
+        $multiYearData = $this->getMultiYearComparison();
+        
+        // Achievement by category for current filters
+        $categoryData = $this->getCategoryDistribution($request);
+        
+        // Top performing students
+        $topStudents = $this->getTopStudents($request);
+        
+        // Class performance
+        $classPerformance = $this->getClassPerformance($request);
+        
+        // Monthly trends
+        $monthlyTrends = $this->getMonthlyTrends($request);
+        
+        return response()->json([
+            'multiYear' => $multiYearData,
+            'categories' => $categoryData,
+            'topStudents' => $topStudents,
+            'classPerformance' => $classPerformance,
+            'monthlyTrends' => $monthlyTrends
+        ]);
+    }
+    
+    /**
+     * Get multi-year comparison data
+     */
+    private function getMultiYearComparison()
+    {
+        return DB::table('prestasi_siswa')
+            ->join('tahun_ajaran', 'prestasi_siswa.id_tahun_ajaran', '=', 'tahun_ajaran.id')
+            ->where('prestasi_siswa.status', 'diterima')
+            ->select(
+                'tahun_ajaran.nama_tahun_ajaran',
+                DB::raw('COUNT(*) as total_prestasi')
+            )
+            ->groupBy('tahun_ajaran.nama_tahun_ajaran')
+            ->orderBy('tahun_ajaran.nama_tahun_ajaran')
+            ->get();
+    }
+    
+    /**
+     * Get category distribution
+     */
+    private function getCategoryDistribution($request)
+    {
+        $query = DB::table('prestasi_siswa')
+            ->join('kategori_prestasi', 'prestasi_siswa.id_kategori_prestasi', '=', 'kategori_prestasi.id')
+            ->where('prestasi_siswa.status', 'diterima');
+            
+        // Apply filters
+        if ($request->filled('kategori')) {
+            $query->where('prestasi_siswa.id_kategori_prestasi', $request->kategori);
+        }
+        if ($request->filled('from')) {
+            $query->whereDate('prestasi_siswa.tanggal_prestasi', '>=', $request->from);
+        }
+        if ($request->filled('to')) {
+            $query->whereDate('prestasi_siswa.tanggal_prestasi', '<=', $request->to);
+        }
+            
+        return $query->select(
+                'kategori_prestasi.nama_kategori',
+                DB::raw('COUNT(*) as total')
+            )
+            ->groupBy('kategori_prestasi.nama_kategori')
+            ->get();
+    }
+    
+    /**
+     * Get top performing students
+     */
+    private function getTopStudents($request)
+    {
+        $query = DB::table('prestasi_siswa')
+            ->join('siswa', 'prestasi_siswa.id_siswa', '=', 'siswa.id')
+            ->where('prestasi_siswa.status', 'diterima');
+            
+        // Apply filters
+        if ($request->filled('kategori')) {
+            $query->where('prestasi_siswa.id_kategori_prestasi', $request->kategori);
+        }
+        if ($request->filled('from')) {
+            $query->whereDate('prestasi_siswa.tanggal_prestasi', '>=', $request->from);
+        }
+        if ($request->filled('to')) {
+            $query->whereDate('prestasi_siswa.tanggal_prestasi', '<=', $request->to);
+        }
+            
+        return $query->select(
+                'siswa.nama',
+                'siswa.id',
+                DB::raw('COUNT(*) as total_prestasi')
+            )
+            ->groupBy('siswa.id', 'siswa.nama')
+            ->orderByDesc('total_prestasi')
+            ->limit(10)
+            ->get();
+    }
+    
+    /**
+     * Get class performance
+     */
+    private function getClassPerformance($request)
+    {
+        $query = DB::table('prestasi_siswa')
+            ->join('siswa', 'prestasi_siswa.id_siswa', '=', 'siswa.id')
+            ->join('kelas', 'siswa.id_kelas', '=', 'kelas.id')
+            ->where('prestasi_siswa.status', 'diterima');
+            
+        // Apply filters
+        if ($request->filled('kategori')) {
+            $query->where('prestasi_siswa.id_kategori_prestasi', $request->kategori);
+        }
+        if ($request->filled('from')) {
+            $query->whereDate('prestasi_siswa.tanggal_prestasi', '>=', $request->from);
+        }
+        if ($request->filled('to')) {
+            $query->whereDate('prestasi_siswa.tanggal_prestasi', '<=', $request->to);
+        }
+            
+        return $query->select(
+                'kelas.nama_kelas',
+                DB::raw('COUNT(*) as total_prestasi')
+            )
+            ->groupBy('kelas.nama_kelas')
+            ->orderByDesc('total_prestasi')
+            ->get();
+    }
+    
+    /**
+     * Get monthly trends
+     */
+    private function getMonthlyTrends($request)
+    {
+        $query = DB::table('prestasi_siswa')
+            ->where('status', 'diterima');
+            
+        // Apply filters
+        if ($request->filled('kategori')) {
+            $query->where('id_kategori_prestasi', $request->kategori);
+        }
+        if ($request->filled('from')) {
+            $query->whereDate('tanggal_prestasi', '>=', $request->from);
+        }
+        if ($request->filled('to')) {
+            $query->whereDate('tanggal_prestasi', '<=', $request->to);
+        }
+            
+        return $query->select(
+                DB::raw('MONTH(tanggal_prestasi) as bulan'),
+                DB::raw('YEAR(tanggal_prestasi) as tahun'),
+                DB::raw('COUNT(*) as total')
+            )
+            ->groupBy(DB::raw('YEAR(tanggal_prestasi), MONTH(tanggal_prestasi)'))
+            ->orderBy('tahun')
+            ->orderBy('bulan')
+            ->get();
+    }
+    
+    /**
+     * Get individual student analysis
+     */
+    public function getStudentAnalysis($studentId)
+    {
+        $student = Siswa::with(['kelas'])->findOrFail($studentId);
+        
+        // Student achievements timeline
+        $achievements = PrestasiSiswa::with(['kategori', 'tingkat'])
+            ->where('id_siswa', $studentId)
+            ->where('status', 'diterima')
+            ->orderBy('tanggal_prestasi')
+            ->get();
+            
+        // Achievement by category
+        $achievementsByCategory = PrestasiSiswa::join('kategori_prestasi', 'prestasi_siswa.id_kategori_prestasi', '=', 'kategori_prestasi.id')
+            ->where('prestasi_siswa.id_siswa', $studentId)
+            ->where('prestasi_siswa.status', 'diterima')
+            ->select(
+                'kategori_prestasi.nama_kategori',
+                DB::raw('COUNT(*) as total')
+            )
+            ->groupBy('kategori_prestasi.nama_kategori')
+            ->get();
+            
+        return response()->json([
+            'student' => $student,
+            'achievements' => $achievements,
+            'achievementsByCategory' => $achievementsByCategory
+        ]);
+    }
+    
+    /**
+     * Generate Excel report
+     */
+    public function generateExcelReport(Request $request)
+    {
+        $query = PrestasiSiswa::with(['siswa', 'kategori', 'tingkat'])
+            ->where('status', 'diterima');
+            
+        // Apply filters
+        if ($request->filled('kategori')) {
+            $query->where('id_kategori_prestasi', $request->kategori);
+        }
+        if ($request->filled('tingkat')) {
+            $query->where('id_tingkat_penghargaan', $request->tingkat);
+        }
+        if ($request->filled('from')) {
+            $query->whereDate('tanggal_prestasi', '>=', $request->from);
+        }
+        if ($request->filled('to')) {
+            $query->whereDate('tanggal_prestasi', '<=', $request->to);
+        }
+        
+        $prestasi = $query->orderByDesc('tanggal_prestasi')->get();
+        
+        return Excel::download(
+            new PrestasiReportExport($prestasi),
+            'rekap-prestasi-' . now()->format('Ymd-His') . '.xlsx'
+        );
     }
 }

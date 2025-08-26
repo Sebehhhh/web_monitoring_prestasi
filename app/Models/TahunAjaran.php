@@ -13,16 +13,20 @@ class TahunAjaran extends Model
 
     protected $fillable = [
         'nama_tahun_ajaran',
-        'tanggal_mulai',
-        'tanggal_selesai', 
-        'semester_aktif',
+        'semester',
+        'tanggal_mulai_tahun',
+        'tanggal_selesai_tahun',
+        'tanggal_mulai_semester',
+        'tanggal_selesai_semester',
         'is_active',
         'keterangan'
     ];
 
     protected $casts = [
-        'tanggal_mulai' => 'date',
-        'tanggal_selesai' => 'date',
+        'tanggal_mulai_tahun' => 'date',
+        'tanggal_selesai_tahun' => 'date',
+        'tanggal_mulai_semester' => 'date',
+        'tanggal_selesai_semester' => 'date',
         'is_active' => 'boolean',
     ];
 
@@ -58,6 +62,30 @@ class TahunAjaran extends Model
 
     public function getFormatTahunAttribute()
     {
-        return $this->nama_tahun_ajaran . ' (' . ucfirst($this->semester_aktif) . ')';
+        return $this->nama_tahun_ajaran . ' - ' . ucfirst($this->semester);
+    }
+    
+    public function getFullNameAttribute()
+    {
+        return $this->nama_tahun_ajaran . ' - ' . ucfirst($this->semester) . 
+               ' (' . $this->tanggal_mulai_semester->format('M') . 
+               ' - ' . $this->tanggal_selesai_semester->format('M Y') . ')';
+    }
+    
+    public function scopeByYear($query, $year)
+    {
+        return $query->where('nama_tahun_ajaran', $year);
+    }
+    
+    public function scopeBySemester($query, $semester)
+    {
+        return $query->where('semester', $semester);
+    }
+    
+    public function scopeCurrentSemester($query)
+    {
+        $now = now();
+        return $query->where('tanggal_mulai_semester', '<=', $now)
+                    ->where('tanggal_selesai_semester', '>=', $now);
     }
 }

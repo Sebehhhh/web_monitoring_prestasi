@@ -81,6 +81,33 @@ class KelasSeeder extends Seeder
                 'nama_kelas' => 'XII IPS 2',
                 'tahun_ajaran' => '2024/2025',
                 'id_wali_kelas' => null
+            ],
+
+            // Alumni Classes (for graduated students)
+            [
+                'nama_kelas' => 'Alumni - Angkatan 2022',
+                'tahun_ajaran' => '2021/2022',
+                'id_wali_kelas' => null
+            ],
+            [
+                'nama_kelas' => 'Alumni - Angkatan 2023',
+                'tahun_ajaran' => '2022/2023',
+                'id_wali_kelas' => null
+            ],
+            [
+                'nama_kelas' => 'Alumni - Angkatan 2024',
+                'tahun_ajaran' => '2023/2024',
+                'id_wali_kelas' => null
+            ],
+            [
+                'nama_kelas' => 'Alumni - Angkatan 2025',
+                'tahun_ajaran' => '2024/2025',
+                'id_wali_kelas' => null
+            ],
+            [
+                'nama_kelas' => 'Alumni - Angkatan 2026',
+                'tahun_ajaran' => '2025/2026',
+                'id_wali_kelas' => null
             ]
         ];
 

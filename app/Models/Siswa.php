@@ -16,6 +16,8 @@ class Siswa extends Model
         'tanggal_lahir',
         'tempat_lahir',
         'id_kelas',
+        'status',
+        'tahun_lulus',
         'alamat',
         'tahun_masuk',
         'no_hp',
@@ -52,10 +54,16 @@ class Siswa extends Model
         return $this->hasMany(PrestasiSiswa::class, 'id_siswa');
     }
 
-    // Relasi ke kenaikan kelas
-    public function kenaikanKelas()
+    // Scope untuk siswa aktif (belum lulus)
+    public function scopeAktif($query)
     {
-        return $this->hasMany(KenaikanKelas::class, 'id_siswa');
+        return $query->where('status', 'aktif');
+    }
+
+    // Scope untuk siswa lulus
+    public function scopeLulus($query)
+    {
+        return $query->where('status', 'lulus');
     }
 
     // Get prestasi by academic year
@@ -68,15 +76,25 @@ class Siswa extends Model
         return $query;
     }
 
-    // Get current class progression status
-    public function getCurrentClassProgression()
+    // Check if student is in final year (class XII)
+    public function isFinalYear()
     {
-        $activeTahunAjaran = TahunAjaran::getActiveTahunAjaran();
-        if ($activeTahunAjaran) {
-            return $this->kenaikanKelas()
-                ->where('tahun_ajaran_id', $activeTahunAjaran->id)
-                ->first();
+        return $this->kelas && str_contains(strtoupper($this->kelas->nama_kelas), 'XII');
+    }
+
+    // Get next class for promotion
+    public function getNextClass()
+    {
+        if (!$this->kelas) return null;
+        
+        $currentClass = $this->kelas->nama_kelas;
+        
+        // Convert XI to XII (e.g., "XI IPA 1" -> "XII IPA 1")
+        if (str_contains(strtoupper($currentClass), 'XI')) {
+            $nextClass = str_replace(['XI', 'xi'], ['XII', 'xii'], $currentClass);
+            return Kelas::where('nama_kelas', $nextClass)->first();
         }
-        return null;
+        
+        return null; // XII students don't have next class (they graduate)
     }
 }

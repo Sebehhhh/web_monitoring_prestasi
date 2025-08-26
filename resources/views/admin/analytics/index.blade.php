@@ -318,7 +318,7 @@
     </div>
 
     <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.5); z-index: 9999; display: none !important;">
+    <div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 align-items-center justify-content-center" style="background: rgba(0,0,0,0.5); z-index: 9999; display: none;">
         <div class="card">
             <div class="card-body text-center">
                 <div class="spinner-border text-primary mb-3"></div>
@@ -455,11 +455,15 @@ function setupEventListeners() {
 }
 
 function showLoading() {
-    document.getElementById('loadingOverlay').style.display = 'flex';
+    const overlay = document.getElementById('loadingOverlay');
+    overlay.style.display = 'flex';
+    overlay.classList.add('d-flex');
 }
 
 function hideLoading() {
-    document.getElementById('loadingOverlay').style.display = 'none';
+    const overlay = document.getElementById('loadingOverlay');
+    overlay.style.display = 'none';
+    overlay.classList.remove('d-flex');
 }
 
 function loadAnalysis() {

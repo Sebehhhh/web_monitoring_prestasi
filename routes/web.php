@@ -63,6 +63,7 @@ Route::middleware(['auth'])->group(function () {
 // Admin only (prefix dan middleware)
 Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [AdminDashboardController::class, 'index'])->name('dashboard');
+    Route::get('/dashboard/analytics', [AdminDashboardController::class, 'analytics'])->name('dashboard.analytics');
     Route::resource('users', UserController::class);
     Route::get('logs', [LogController::class, 'index'])->name('logs.index');
     Route::resource('kelas', KelasController::class);
@@ -78,6 +79,16 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::post('prestasi_siswa/{prestasi_siswa}/validasi-guru', [PrestasiSiswaController::class, 'validasiGuru'])->name('prestasi_siswa.validasi_guru');
 
     Route::get('prestasi_siswa/cetak', [PrestasiSiswaController::class, 'cetak'])->name('prestasi_siswa.cetak');
+    
+    // Analytics endpoints for prestasi siswa page  
+    Route::get('prestasi_siswa/analytics-data', [PrestasiSiswaController::class, 'getAnalyticsData'])->name('prestasi_siswa.analytics_data');
+    Route::get('prestasi_siswa/student-analysis/{student}', [PrestasiSiswaController::class, 'getStudentAnalysis'])->name('prestasi_siswa.student_analysis');
+    Route::get('prestasi_siswa/excel-report', [PrestasiSiswaController::class, 'generateExcelReport'])->name('prestasi_siswa.excel_report');
+    
+    // New enhanced export routes for prestasi siswa page
+    Route::get('prestasi_siswa/portfolio/{siswa}', [ReportController::class, 'generateStudentPortfolio'])->name('prestasi_siswa.portfolio');
+    Route::get('prestasi_siswa/export/class', [ReportController::class, 'exportClassReport'])->name('prestasi_siswa.export_class');
+    Route::get('prestasi_siswa/export/yearly', [ReportController::class, 'exportYearlyReport'])->name('prestasi_siswa.export_yearly');
     Route::get('siswa/cetak', [SiswaController::class, 'cetak'])->name('siswa.cetak');
     
     // Advanced Analytics Routes
@@ -107,10 +118,10 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::get('tahun_ajaran-select', [TahunAjaranController::class, 'getAllForSelect'])->name('tahun_ajaran.for_select');
     Route::post('tahun_ajaran/{tahun_ajaran}/duplicate', [TahunAjaranController::class, 'duplicateToNext'])->name('tahun_ajaran.duplicate');
 
-    // Class Progression Routes
-    Route::resource('kenaikan_kelas', KenaikanKelasController::class);
-    Route::post('kenaikan_kelas/bulk-process', [KenaikanKelasController::class, 'bulkProcess'])->name('kenaikan_kelas.bulk_process');
-    Route::get('kenaikan_kelas-eligible-students', [KenaikanKelasController::class, 'getEligibleStudents'])->name('kenaikan_kelas.eligible_students');
+    // Class Progression Routes (Simplified)
+    Route::get('kenaikan_kelas', [KenaikanKelasController::class, 'index'])->name('kenaikan_kelas.index');
+    Route::post('kenaikan_kelas/process', [KenaikanKelasController::class, 'processKenaikan'])->name('kenaikan_kelas.process');
+    Route::post('kenaikan_kelas/process-all', [KenaikanKelasController::class, 'processAllKenaikan'])->name('kenaikan_kelas.process_all');
 });
 
 // Guru only (prefix dan middleware)

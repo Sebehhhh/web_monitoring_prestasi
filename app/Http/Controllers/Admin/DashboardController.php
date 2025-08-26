@@ -23,41 +23,67 @@ class DashboardController extends Controller
             // Get current academic year
             $currentTahunAjaran = TahunAjaran::getActiveTahunAjaran();
             
-            // Statistik Pengguna
-            $totalSiswa = Siswa::count();
+            // Statistik Pengguna (Fixed - show actual data)
+            $totalSiswa = Siswa::where('status', 'aktif')->count();
             $totalGuru = User::where('role', 'guru')->count();
             $totalWaliKelas = User::where('role', 'wali_kelas')->count();
             $totalKepalaSekolah = User::where('role', 'kepala_sekolah')->count();
             $totalAdmin = User::where('role', 'admin')->count();
 
-            // Enhanced Statistik Prestasi with current academic year filter
-            $prestasiQuery = PrestasiSiswa::query();
-            if ($currentTahunAjaran) {
-                $prestasiQuery->where('id_tahun_ajaran', $currentTahunAjaran->id);
-            }
-
+            // Enhanced Statistik Prestasi (Fixed - show actual data without strict year filtering)
             $totalPrestasi = PrestasiSiswa::count(); // All time
-            $totalPrestasiCurrentYear = $prestasiQuery->count(); // Current year
-            $prestasiTervalidasi = (clone $prestasiQuery)->where('status', 'diterima')->count();
-            $prestasiPending = (clone $prestasiQuery)->where('status', 'menunggu_validasi')->count();
-            $prestasiDitolak = (clone $prestasiQuery)->where('status', 'ditolak')->count();
+            $prestasiTervalidasi = PrestasiSiswa::where('status', 'diterima')->count();
+            $prestasiPending = PrestasiSiswa::where('status', 'menunggu_validasi')->count();
+            $prestasiDitolak = PrestasiSiswa::where('status', 'ditolak')->count();
+            
+            // Get current year prestasi with fallback to latest year with data
+            $totalPrestasiCurrentYear = 0;
+            if ($currentTahunAjaran) {
+                $totalPrestasiCurrentYear = PrestasiSiswa::where('id_tahun_ajaran', $currentTahunAjaran->id)->count();
+                
+                // If current year has no data, get latest year with data
+                if ($totalPrestasiCurrentYear == 0) {
+                    $latestYearWithData = PrestasiSiswa::select('id_tahun_ajaran')
+                        ->whereNotNull('id_tahun_ajaran')
+                        ->groupBy('id_tahun_ajaran')
+                        ->orderBy('id_tahun_ajaran', 'desc')
+                        ->first();
+                    
+                    if ($latestYearWithData) {
+                        $totalPrestasiCurrentYear = PrestasiSiswa::where('id_tahun_ajaran', $latestYearWithData->id_tahun_ajaran)->count();
+                    }
+                }
+            }
 
-            // Enhanced Prestasi by Type (Academic/Non-Academic)
-            $prestasiAkademik = PrestasiSiswa::whereHas('kategoriPrestasi', function($q) {
+            // Enhanced Prestasi by Type (Academic/Non-Academic) - Fixed
+            $prestasiAkademikCount = PrestasiSiswa::whereHas('kategoriPrestasi', function($q) {
                 $q->where('jenis_prestasi', 'akademik');
-            });
-            if ($currentTahunAjaran) {
-                $prestasiAkademik->where('id_tahun_ajaran', $currentTahunAjaran->id);
-            }
-            $prestasiAkademikCount = $prestasiAkademik->where('status', 'diterima')->count();
+            })->where('status', 'diterima')->count();
 
-            $prestasiNonAkademik = PrestasiSiswa::whereHas('kategoriPrestasi', function($q) {
+            $prestasiNonAkademikCount = PrestasiSiswa::whereHas('kategoriPrestasi', function($q) {
                 $q->where('jenis_prestasi', 'non_akademik');
-            });
-            if ($currentTahunAjaran) {
-                $prestasiNonAkademik->where('id_tahun_ajaran', $currentTahunAjaran->id);
-            }
-            $prestasiNonAkademikCount = $prestasiNonAkademik->where('status', 'diterima')->count();
+            })->where('status', 'diterima')->count();
+
+            // Enhanced KPI data for dashboard (Fixed)
+            $prestasiNasional = PrestasiSiswa::whereHas('kategoriPrestasi', function($q) {
+                    $q->where('tingkat_kompetisi', 'nasional');
+                })
+                ->where('status', 'diterima')
+                ->count();
+                
+            $prestasiInternasional = PrestasiSiswa::whereHas('kategoriPrestasi', function($q) {
+                    $q->where('tingkat_kompetisi', 'internasional');
+                })
+                ->where('status', 'diterima')
+                ->count();
+                
+            $prestasiProgress = $totalPrestasi > 0 ? round(($prestasiTervalidasi / $totalPrestasi) * 100, 1) : 0;
+            $avgPrestasiPerSiswa = $totalSiswa > 0 ? round($prestasiTervalidasi / $totalSiswa, 1) : 0;
+            $siswaWithPrestasi = Siswa::whereHas('prestasi', function($q) {
+                $q->where('status', 'diterima');
+            })->count();
+            $participationRate = $totalSiswa > 0 ? round(($siswaWithPrestasi / $totalSiswa) * 100, 1) : 0;
+            $prestasiValidationRate = $totalPrestasi > 0 ? round(($prestasiTervalidasi / $totalPrestasi) * 100, 1) : 0;
 
             // Statistik Kelas with Class Progression Info
             $totalKelas = Kelas::count();
@@ -81,13 +107,11 @@ class DashboardController extends Controller
                 ];
             }
 
-            // Enhanced Ekstrakurikuler Statistics with Period Tracking
+            // Enhanced Ekstrakurikuler Statistics (Fixed)
             $totalEkskul = Ekstrakurikuler::count();
-            $totalAnggotaEkskulQuery = DB::table('siswa_ekskul');
-            if ($currentTahunAjaran) {
-                $totalAnggotaEkskulQuery->where('tahun_ajaran', $currentTahunAjaran->nama_tahun_ajaran);
-            }
-            $totalAnggotaEkskul = $totalAnggotaEkskulQuery->where('status_keaktifan', 'aktif')->count();
+            $totalAnggotaEkskul = DB::table('siswa_ekskul')
+                ->where('status_keaktifan', 'aktif')
+                ->count();
 
             // Enhanced Prestasi per Kategori with Competition Level
             $prestasiPerKategori = PrestasiSiswa::select(
@@ -98,43 +122,18 @@ class DashboardController extends Controller
                 )
                 ->join('kategori_prestasi', 'prestasi_siswa.id_kategori_prestasi', '=', 'kategori_prestasi.id')
                 ->where('prestasi_siswa.status', 'diterima')
-                ->when($currentTahunAjaran, function($q) use ($currentTahunAjaran) {
-                    // Check if prestasi have id_tahun_ajaran data
-                    $hasAcademicYearData = PrestasiSiswa::whereNotNull('id_tahun_ajaran')->exists();
-                    
-                    if ($hasAcademicYearData) {
-                        return $q->where('prestasi_siswa.id_tahun_ajaran', $currentTahunAjaran->id);
-                    } else {
-                        // Check if any prestasi exists in current academic year date range
-                        $prestasiInRange = PrestasiSiswa::where('status', 'diterima')
-                            ->where('tanggal_prestasi', '>=', $currentTahunAjaran->tanggal_mulai)
-                            ->where('tanggal_prestasi', '<=', $currentTahunAjaran->tanggal_selesai)
-                            ->exists();
-                        
-                        if ($prestasiInRange) {
-                            // Filter by date range if data exists in range
-                            return $q->where('tanggal_prestasi', '>=', $currentTahunAjaran->tanggal_mulai)
-                                     ->where('tanggal_prestasi', '<=', $currentTahunAjaran->tanggal_selesai);
-                        } else {
-                            // If no data in academic year range, show all data
-                            return $q;
-                        }
-                    }
-                })
+                // Simplified: show all data for now
                 ->groupBy('kategori_prestasi.id', 'kategori_prestasi.nama_kategori', 'kategori_prestasi.jenis_prestasi', 'kategori_prestasi.tingkat_kompetisi')
                 ->orderBy('total', 'desc')
                 ->get();
 
-            // Competition Level Distribution
+            // Competition Level Distribution (Fixed - show all data)
             $prestasiPerTingkatKompetisi = PrestasiSiswa::select(
                     'kategori_prestasi.tingkat_kompetisi as tingkat', 
                     DB::raw('count(*) as total')
                 )
                 ->join('kategori_prestasi', 'prestasi_siswa.id_kategori_prestasi', '=', 'kategori_prestasi.id')
                 ->where('prestasi_siswa.status', 'diterima')
-                ->when($currentTahunAjaran, function($q) use ($currentTahunAjaran) {
-                    return $q->where('prestasi_siswa.id_tahun_ajaran', $currentTahunAjaran->id);
-                })
                 ->groupBy('kategori_prestasi.tingkat_kompetisi')
                 ->orderByRaw("FIELD(kategori_prestasi.tingkat_kompetisi, 'internasional', 'nasional', 'provinsi', 'kabupaten', 'sekolah')")
                 ->get();
@@ -143,9 +142,7 @@ class DashboardController extends Controller
             $prestasiPerTingkat = PrestasiSiswa::select('tingkat_penghargaan.tingkat as tingkat', DB::raw('count(*) as total'))
                 ->join('tingkat_penghargaan', 'prestasi_siswa.id_tingkat_penghargaan', '=', 'tingkat_penghargaan.id')
                 ->where('prestasi_siswa.status', 'diterima')
-                ->when($currentTahunAjaran, function($q) use ($currentTahunAjaran) {
-                    return $q->where('prestasi_siswa.id_tahun_ajaran', $currentTahunAjaran->id);
-                })
+                // Simplified: show all data
                 ->groupBy('tingkat_penghargaan.id', 'tingkat_penghargaan.tingkat')
                 ->get();
 
@@ -155,48 +152,7 @@ class DashboardController extends Controller
                     DB::raw('count(*) as total')
                 )
                 ->where('prestasi_siswa.status', 'diterima')
-                ->when($currentTahunAjaran, function($q) use ($currentTahunAjaran) {
-                    // Check if prestasi have id_tahun_ajaran data
-                    $hasAcademicYearData = PrestasiSiswa::whereNotNull('id_tahun_ajaran')->exists();
-                    
-                    if ($hasAcademicYearData) {
-                        return $q->where('prestasi_siswa.id_tahun_ajaran', $currentTahunAjaran->id)
-                                 ->where('tanggal_prestasi', '>=', $currentTahunAjaran->tanggal_mulai)
-                                 ->where('tanggal_prestasi', '<=', $currentTahunAjaran->tanggal_selesai);
-                    } else {
-                        // Check if any prestasi exists in current academic year date range
-                        $prestasiInRange = PrestasiSiswa::where('status', 'diterima')
-                            ->where('tanggal_prestasi', '>=', $currentTahunAjaran->tanggal_mulai)
-                            ->where('tanggal_prestasi', '<=', $currentTahunAjaran->tanggal_selesai)
-                            ->exists();
-                        
-                        if ($prestasiInRange) {
-                            // Filter by academic year date range if data exists
-                            return $q->where('tanggal_prestasi', '>=', $currentTahunAjaran->tanggal_mulai)
-                                     ->where('tanggal_prestasi', '<=', $currentTahunAjaran->tanggal_selesai);
-                        } else {
-                            // If no data in academic year range, get last 6 months from current date
-                            return $q->where('tanggal_prestasi', '>=', now()->subMonths(6)->format('Y-m-d'));
-                        }
-                    }
-                }, function($q) {
-                    // If no current academic year, get all available data or last 12 months (whichever is earlier)
-                    $oldestPrestasi = PrestasiSiswa::where('status', 'diterima')
-                        ->orderBy('tanggal_prestasi', 'asc')
-                        ->first();
-                    
-                    if ($oldestPrestasi && $oldestPrestasi->tanggal_prestasi) {
-                        // Use the earlier of: oldest prestasi date or 12 months ago
-                        $startDate = min(
-                            $oldestPrestasi->tanggal_prestasi,
-                            now()->subMonths(12)->format('Y-m-d')
-                        );
-                        return $q->where('tanggal_prestasi', '>=', $startDate);
-                    }
-                    
-                    // Fallback: show all data if we can't determine oldest date
-                    return $q;
-                })
+                ->where('tanggal_prestasi', '>=', now()->subMonths(6)) // Simplified: last 6 months
                 ->groupBy('bulan')
                 ->orderBy('bulan')
                 ->get();
@@ -255,6 +211,12 @@ class DashboardController extends Controller
                 'prestasiDitolak',
                 'prestasiAkademikCount',
                 'prestasiNonAkademikCount',
+                'prestasiNasional',
+                'prestasiInternasional',
+                'prestasiProgress',
+                'avgPrestasiPerSiswa',
+                'participationRate',
+                'prestasiValidationRate',
                 
                 // Class and Progression Statistics
                 'totalKelas',
@@ -285,7 +247,7 @@ class DashboardController extends Controller
             ));
 
         } catch (\Exception $e) {
-            Log::error('Dashboard Admin Error: ' . $e->getMessage());
+            Log::error('Dashboard Admin Error: ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine());
             return view('admin.dashboard', [
                 // User Statistics
                 'totalSiswa' => 0,
@@ -302,6 +264,12 @@ class DashboardController extends Controller
                 'prestasiDitolak' => 0,
                 'prestasiAkademikCount' => 0,
                 'prestasiNonAkademikCount' => 0,
+                'prestasiNasional' => 0,
+                'prestasiInternasional' => 0,
+                'prestasiProgress' => 0,
+                'avgPrestasiPerSiswa' => 0,
+                'participationRate' => 0,
+                'prestasiValidationRate' => 0,
                 
                 // Class and Progression Statistics
                 'totalKelas' => 0,
@@ -328,8 +296,232 @@ class DashboardController extends Controller
                 'topEkskul' => collect(),
                 
                 // Academic Year Context
-                'currentTahunAjaran' => null
+                'currentTahunAjaran' => null,
+                'tahunAjaranAktif' => null
             ]);
         }
+    }
+
+    /**
+     * Get comprehensive analytics data for enhanced dashboard
+     */
+    public function analytics()
+    {
+        try {
+            $currentTahunAjaran = TahunAjaran::getActiveTahunAjaran();
+            
+            return response()->json([
+                'multiYear' => $this->getMultiYearAnalytics(),
+                'competitionLevel' => $this->getCompetitionLevelAnalytics($currentTahunAjaran),
+                'topClasses' => $this->getTopClassAnalytics($currentTahunAjaran),
+                'monthlyTrend' => $this->getMonthlyTrendAnalytics($currentTahunAjaran),
+                'topStudents' => $this->getTopStudentAnalytics($currentTahunAjaran),
+                'categoryPerformance' => $this->getCategoryPerformanceAnalytics($currentTahunAjaran),
+                'extracurricularImpact' => $this->getExtracurricularImpactAnalytics($currentTahunAjaran),
+                'academicVsNonAcademic' => $this->getAcademicVsNonAcademicAnalytics($currentTahunAjaran)
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Dashboard Analytics Error: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to load analytics'], 500);
+        }
+    }
+
+    private function getMultiYearAnalytics()
+    {
+        $years = TahunAjaran::select('nama_tahun_ajaran')
+            ->distinct()
+            ->orderBy('nama_tahun_ajaran', 'desc')
+            ->limit(4)
+            ->pluck('nama_tahun_ajaran');
+            
+        $categories = [];
+        $totalSeries = [];
+        
+        foreach ($years as $year) {
+            $categories[] = $year;
+            
+            // Simplified: Only get total prestasi per year
+            $totalCount = PrestasiSiswa::whereHas('tahunAjaran', function($q) use ($year) {
+                    $q->where('nama_tahun_ajaran', $year);
+                })
+                ->where('status', 'diterima')
+                ->count();
+            
+            $totalSeries[] = $totalCount;
+        }
+        
+        return [
+            'categories' => array_reverse($categories),
+            'series' => [
+                ['name' => 'Total Prestasi', 'data' => array_reverse($totalSeries)]
+            ]
+        ];
+    }
+
+    private function getCompetitionLevelAnalytics($currentTahunAjaran)
+    {
+        // Fixed: Show all competition level data without strict year filtering
+        $data = PrestasiSiswa::select(
+                'kategori_prestasi.tingkat_kompetisi as tingkat', 
+                DB::raw('count(*) as total')
+            )
+            ->join('kategori_prestasi', 'prestasi_siswa.id_kategori_prestasi', '=', 'kategori_prestasi.id')
+            ->where('prestasi_siswa.status', 'diterima')
+            ->whereNotNull('kategori_prestasi.tingkat_kompetisi')
+            ->groupBy('kategori_prestasi.tingkat_kompetisi')
+            ->orderByRaw("FIELD(kategori_prestasi.tingkat_kompetisi, 'internasional', 'nasional', 'provinsi', 'kabupaten', 'sekolah')")
+            ->get();
+            
+        return [
+            'labels' => $data->pluck('tingkat')->map(function($tingkat) {
+                return ucfirst($tingkat ?: 'Lainnya');
+            })->toArray(),
+            'series' => $data->pluck('total')->toArray()
+        ];
+    }
+
+    private function getTopClassAnalytics($currentTahunAjaran)
+    {
+        // Fixed: Show all class data without strict year filtering
+        $data = Kelas::select('kelas.nama_kelas', DB::raw('count(prestasi_siswa.id) as total_prestasi'))
+            ->leftJoin('siswa', 'kelas.id', '=', 'siswa.id_kelas')
+            ->leftJoin('prestasi_siswa', function($join) {
+                $join->on('siswa.id', '=', 'prestasi_siswa.id_siswa')
+                     ->where('prestasi_siswa.status', '=', 'diterima');
+            })
+            ->groupBy('kelas.id', 'kelas.nama_kelas')
+            ->orderBy('total_prestasi', 'desc')
+            ->limit(10)
+            ->get();
+            
+        return [
+            'categories' => $data->pluck('nama_kelas')->toArray(),
+            'series' => $data->pluck('total_prestasi')->toArray()
+        ];
+    }
+
+    private function getMonthlyTrendAnalytics($currentTahunAjaran)
+    {
+        // Fixed: Show last 6 months data without strict year filtering
+        $data = PrestasiSiswa::select(
+                DB::raw('DATE_FORMAT(tanggal_prestasi, "%Y-%m") as bulan'),
+                DB::raw('count(*) as total')
+            )
+            ->where('status', 'diterima')
+            ->where('tanggal_prestasi', '>=', now()->subMonths(6))
+            ->groupBy('bulan')
+            ->orderBy('bulan', 'asc')
+            ->get();
+        
+        return [
+            'categories' => $data->pluck('bulan')->map(function($bulan) {
+                return date('M Y', strtotime($bulan . '-01'));
+            })->toArray(),
+            'series' => $data->pluck('total')->toArray()
+        ];
+    }
+
+    private function getTopStudentAnalytics($currentTahunAjaran)
+    {
+        // Fixed: Show all student data without strict year filtering
+        $data = Siswa::select('siswa.nama', 'kelas.nama_kelas as kelas', DB::raw('count(prestasi_siswa.id) as total_prestasi'))
+            ->leftJoin('kelas', 'siswa.id_kelas', '=', 'kelas.id')
+            ->leftJoin('prestasi_siswa', function($join) {
+                $join->on('siswa.id', '=', 'prestasi_siswa.id_siswa')
+                     ->where('prestasi_siswa.status', '=', 'diterima');
+            })
+            ->groupBy('siswa.id', 'siswa.nama', 'kelas.nama_kelas')
+            ->orderBy('total_prestasi', 'desc')
+            ->limit(10)
+            ->get();
+            
+        return $data->toArray();
+    }
+
+    private function getCategoryPerformanceAnalytics($currentTahunAjaran)
+    {
+        // Fixed: Show all category data without strict year filtering
+        $data = KategoriPrestasi::select('kategori_prestasi.nama_kategori', DB::raw('count(prestasi_siswa.id) as total'))
+            ->leftJoin('prestasi_siswa', function($join) {
+                $join->on('kategori_prestasi.id', '=', 'prestasi_siswa.id_kategori_prestasi')
+                     ->where('prestasi_siswa.status', '=', 'diterima');
+            })
+            ->groupBy('kategori_prestasi.id', 'kategori_prestasi.nama_kategori')
+            ->orderBy('total', 'desc')
+            ->limit(8)
+            ->get();
+            
+        return [
+            'labels' => $data->pluck('nama_kategori')->toArray(),
+            'series' => $data->pluck('total')->toArray()
+        ];
+    }
+
+    private function getExtracurricularImpactAnalytics($currentTahunAjaran)
+    {
+        $data = Ekstrakurikuler::select(
+                'ekstrakurikuler.nama',
+                DB::raw('count(distinct siswa_ekskul.id_siswa) as total_anggota'),
+                DB::raw('count(prestasi_siswa.id) as total_prestasi')
+            )
+            ->leftJoin('siswa_ekskul', 'ekstrakurikuler.id', '=', 'siswa_ekskul.id_ekskul')
+            ->leftJoin('siswa', 'siswa_ekskul.id_siswa', '=', 'siswa.id')
+            ->leftJoin('prestasi_siswa', function($join) {
+                $join->on('siswa.id', '=', 'prestasi_siswa.id_siswa')
+                     ->where('prestasi_siswa.status', '=', 'diterima');
+            })
+            ->groupBy('ekstrakurikuler.id', 'ekstrakurikuler.nama')
+            ->orderBy('total_prestasi', 'desc')
+            ->limit(8)
+            ->get();
+            
+        return [
+            'categories' => $data->pluck('nama')->toArray(),
+            'series' => [
+                ['name' => 'Anggota', 'data' => $data->pluck('total_anggota')->toArray()],
+                ['name' => 'Prestasi', 'data' => $data->pluck('total_prestasi')->toArray()]
+            ]
+        ];
+    }
+
+    private function getAcademicVsNonAcademicAnalytics($currentTahunAjaran)
+    {
+        $months = collect(range(0, 5))->map(function($i) {
+            return now()->subMonths($i)->format('Y-m');
+        })->reverse();
+        
+        $categories = [];
+        $akademikData = [];
+        $nonAkademikData = [];
+        
+        foreach ($months as $month) {
+            $categories[] = date('M Y', strtotime($month . '-01'));
+            
+            // Fixed: Remove strict academic year filtering  
+            $akademikCount = PrestasiSiswa::whereHas('kategoriPrestasi', function($q) {
+                    $q->where('jenis_prestasi', 'akademik');
+                })
+                ->where('status', 'diterima')
+                ->whereRaw('DATE_FORMAT(tanggal_prestasi, "%Y-%m") = ?', [$month])
+                ->count();
+            
+            $nonAkademikCount = PrestasiSiswa::whereHas('kategoriPrestasi', function($q) {
+                    $q->where('jenis_prestasi', 'non_akademik');
+                })
+                ->where('status', 'diterima')
+                ->whereRaw('DATE_FORMAT(tanggal_prestasi, "%Y-%m") = ?', [$month])
+                ->count();
+            
+            $akademikData[] = $akademikCount;
+            $nonAkademikData[] = $nonAkademikCount;
+        }
+        
+        return [
+            'categories' => $categories,
+            'series' => [
+                ['name' => 'Akademik', 'data' => $akademikData],
+                ['name' => 'Non-Akademik', 'data' => $nonAkademikData]
+            ]
+        ];
     }
 }

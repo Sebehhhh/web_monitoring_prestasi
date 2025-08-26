@@ -9,45 +9,50 @@ class TahunAjaranSeeder extends Seeder
 {
     public function run()
     {
-        echo "📅 Creating Academic Years...\n";
+        echo "📅 Creating Academic Years with Semester System...\n";
         
-        $tahunAjarans = [
-            [
-                'nama_tahun_ajaran' => '2022/2023',
-                'tanggal_mulai' => '2022-07-15',
-                'tanggal_selesai' => '2023-06-30',
-                'semester_aktif' => 'genap',
+        // Clear existing data first
+        TahunAjaran::query()->delete();
+        
+        $years = ['2022/2023', '2023/2024', '2024/2025', '2025/2026'];
+        
+        foreach ($years as $year) {
+            $startYear = (int) substr($year, 0, 4);
+            $endYear = (int) substr($year, 5, 4);
+            
+            // Semester Ganjil (July - December)
+            TahunAjaran::create([
+                'nama_tahun_ajaran' => $year,
+                'semester' => 'ganjil',
+                'tanggal_mulai_tahun' => "{$startYear}-07-15",
+                'tanggal_selesai_tahun' => "{$endYear}-06-30",
+                'tanggal_mulai_semester' => "{$startYear}-07-15",
+                'tanggal_selesai_semester' => "{$startYear}-12-31",
                 'is_active' => false,
-            ],
-            [
-                'nama_tahun_ajaran' => '2023/2024',
-                'tanggal_mulai' => '2023-07-15',
-                'tanggal_selesai' => '2024-06-30',
-                'semester_aktif' => 'genap',
+                'keterangan' => "Semester Ganjil {$year}"
+            ]);
+            
+            // Semester Genap (January - June)
+            TahunAjaran::create([
+                'nama_tahun_ajaran' => $year,
+                'semester' => 'genap',
+                'tanggal_mulai_tahun' => "{$startYear}-07-15",
+                'tanggal_selesai_tahun' => "{$endYear}-06-30",
+                'tanggal_mulai_semester' => "{$endYear}-01-01",
+                'tanggal_selesai_semester' => "{$endYear}-06-30",
                 'is_active' => false,
-            ],
-            [
-                'nama_tahun_ajaran' => '2024/2025',
-                'tanggal_mulai' => '2024-07-15',
-                'tanggal_selesai' => '2025-06-30',
-                'semester_aktif' => 'ganjil',
-                'is_active' => true,
-            ],
-            [
-                'nama_tahun_ajaran' => '2025/2026',
-                'tanggal_mulai' => '2025-07-15',
-                'tanggal_selesai' => '2026-06-30',
-                'semester_aktif' => 'ganjil',
-                'is_active' => false,
-            ]
-        ];
-
-        foreach ($tahunAjarans as $tahun) {
-            TahunAjaran::create($tahun);
-            echo "   ✓ Created academic year: {$tahun['nama_tahun_ajaran']}" . 
-                 ($tahun['is_active'] ? ' (ACTIVE)' : '') . "\n";
+                'keterangan' => "Semester Genap {$year}"
+            ]);
+            
+            echo "   ✓ Created academic year: {$year} (Ganjil & Genap)\n";
         }
         
+        // Set 2025/2026 Ganjil as active
+        TahunAjaran::where('nama_tahun_ajaran', '2025/2026')
+                   ->where('semester', 'ganjil')
+                   ->update(['is_active' => true]);
+                   
+        echo "   ✓ Set 2025/2026 - Ganjil as ACTIVE\n";
         echo "📅 Academic Years seeding completed!\n\n";
     }
 }

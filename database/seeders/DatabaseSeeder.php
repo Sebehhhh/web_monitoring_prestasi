@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             TingkatPenghargaanSeeder::class,
             EkstrakurikulerSeeder::class,
             ComprehensiveAllRolesSeeder::class,
+            SiswaKelasXSeeder::class,
         ]);
     }
 }

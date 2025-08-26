@@ -13,6 +13,7 @@ use App\Models\Ekstrakurikuler;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use PDF;
+use Excel;
 
 class ReportController extends Controller
 {
@@ -337,22 +338,302 @@ class ReportController extends Controller
 
     private function generateStudentExcel($data)
     {
-        // Excel generation would go here - using a package like maatwebsite/excel
-        return response()->json(['message' => 'Excel export not implemented yet']);
+        return Excel::download(new class($data) implements \Maatwebsite\Excel\Concerns\FromCollection, \Maatwebsite\Excel\Concerns\WithHeadings, \Maatwebsite\Excel\Concerns\WithStyles, \Maatwebsite\Excel\Concerns\WithTitle {
+            private $data;
+            
+            public function __construct($data) {
+                $this->data = $data;
+            }
+            
+            public function collection() {
+                return $this->data['prestasi']->map(function($prestasi, $index) {
+                    return [
+                        'No' => $index + 1,
+                        'Nama Prestasi' => $prestasi->nama_prestasi,
+                        'Kategori' => $prestasi->kategoriPrestasi->nama_kategori ?? '-',
+                        'Jenis' => ucfirst($prestasi->kategoriPrestasi->jenis_prestasi ?? '-'),
+                        'Tingkat Kompetisi' => ucfirst($prestasi->kategoriPrestasi->tingkat_kompetisi ?? '-'),
+                        'Tingkat Penghargaan' => $prestasi->tingkatPenghargaan->tingkat ?? '-',
+                        'Penyelenggara' => $prestasi->penyelenggara,
+                        'Tanggal' => $prestasi->tanggal_prestasi ? \Carbon\Carbon::parse($prestasi->tanggal_prestasi)->format('d-m-Y') : '-',
+                        'Status' => ucwords(str_replace('_', ' ', $prestasi->status)),
+                        'Keterangan' => $prestasi->keterangan ?? '-'
+                    ];
+                });
+            }
+            
+            public function headings(): array {
+                return ['No', 'Nama Prestasi', 'Kategori', 'Jenis', 'Tingkat Kompetisi', 'Tingkat Penghargaan', 'Penyelenggara', 'Tanggal', 'Status', 'Keterangan'];
+            }
+            
+            public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
+                return [
+                    1 => ['font' => ['bold' => true]],
+                ];
+            }
+            
+            public function title(): string {
+                return 'Prestasi ' . $this->data['siswa']->nama;
+            }
+        }, 'prestasi-' . $data['siswa']->nama . '.xlsx');
     }
 
     private function generateClassExcel($data)
     {
-        return response()->json(['message' => 'Excel export not implemented yet']);
+        return Excel::download(new class($data) implements \Maatwebsite\Excel\Concerns\WithMultipleSheets {
+            private $data;
+            
+            public function __construct($data) {
+                $this->data = $data;
+            }
+            
+            public function sheets(): array {
+                return [
+                    'Ringkasan Kelas' => new class($this->data) implements \Maatwebsite\Excel\Concerns\FromCollection, \Maatwebsite\Excel\Concerns\WithHeadings, \Maatwebsite\Excel\Concerns\WithStyles {
+                        private $data;
+                        
+                        public function __construct($data) {
+                            $this->data = $data;
+                        }
+                        
+                        public function collection() {
+                            return $this->data['siswa_data']->map(function($siswaData, $index) {
+                                return [
+                                    'No' => $index + 1,
+                                    'Nama Siswa' => $siswaData['siswa']->nama,
+                                    'NISN' => $siswaData['siswa']->nisn,
+                                    'Total Prestasi' => $siswaData['total_prestasi'],
+                                    'Prestasi Akademik' => $siswaData['prestasi_akademik'],
+                                    'Prestasi Non-Akademik' => $siswaData['prestasi_non_akademik'],
+                                    'Ranking' => $index + 1
+                                ];
+                            })->sortByDesc('Total Prestasi')->values();
+                        }
+                        
+                        public function headings(): array {
+                            return ['No', 'Nama Siswa', 'NISN', 'Total Prestasi', 'Prestasi Akademik', 'Prestasi Non-Akademik', 'Ranking'];
+                        }
+                        
+                        public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
+                            return [
+                                1 => ['font' => ['bold' => true]],
+                            ];
+                        }
+                    },
+                    'Detail Prestasi' => new class($this->data) implements \Maatwebsite\Excel\Concerns\FromCollection, \Maatwebsite\Excel\Concerns\WithHeadings, \Maatwebsite\Excel\Concerns\WithStyles {
+                        private $data;
+                        
+                        public function __construct($data) {
+                            $this->data = $data;
+                        }
+                        
+                        public function collection() {
+                            $result = collect();
+                            foreach($this->data['siswa_data'] as $siswaData) {
+                                foreach($siswaData['prestasi'] as $prestasi) {
+                                    $result->push([
+                                        'Nama Siswa' => $siswaData['siswa']->nama,
+                                        'Nama Prestasi' => $prestasi->nama_prestasi,
+                                        'Kategori' => $prestasi->kategoriPrestasi->nama_kategori ?? '-',
+                                        'Tingkat Penghargaan' => $prestasi->tingkatPenghargaan->tingkat ?? '-',
+                                        'Tanggal' => $prestasi->tanggal_prestasi ? \Carbon\Carbon::parse($prestasi->tanggal_prestasi)->format('d-m-Y') : '-'
+                                    ]);
+                                }
+                            }
+                            return $result;
+                        }
+                        
+                        public function headings(): array {
+                            return ['Nama Siswa', 'Nama Prestasi', 'Kategori', 'Tingkat Penghargaan', 'Tanggal'];
+                        }
+                        
+                        public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
+                            return [
+                                1 => ['font' => ['bold' => true]],
+                            ];
+                        }
+                    }
+                ];
+            }
+        }, 'laporan-kelas-' . $data['kelas']->nama_kelas . '.xlsx');
     }
 
     private function generateSchoolExcel($data)
     {
-        return response()->json(['message' => 'Excel export not implemented yet']);
+        return Excel::download(new class($data) implements \Maatwebsite\Excel\Concerns\WithMultipleSheets {
+            private $data;
+            
+            public function __construct($data) {
+                $this->data = $data;
+            }
+            
+            public function sheets(): array {
+                return [
+                    'Ringkasan' => new class($this->data) implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithStyles {
+                        private $data;
+                        
+                        public function __construct($data) {
+                            $this->data = $data;
+                        }
+                        
+                        public function array(): array {
+                            $periode = $this->data['periode'] ? $this->data['periode']->nama_tahun_ajaran : 'Semua Periode';
+                            return [
+                                ['LAPORAN PRESTASI SEKOLAH'],
+                                ['Periode', $periode],
+                                ['Generated', $this->data['generated_at']->format('d-m-Y H:i:s')],
+                                [],
+                                ['STATISTIK UMUM'],
+                                ['Total Prestasi', $this->data['total_prestasi']],
+                                [],
+                            ];
+                        }
+                        
+                        public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
+                            return [
+                                1 => ['font' => ['bold' => true, 'size' => 16]],
+                                5 => ['font' => ['bold' => true]],
+                            ];
+                        }
+                    },
+                    'Per Kategori' => new class($this->data) implements \Maatwebsite\Excel\Concerns\FromCollection, \Maatwebsite\Excel\Concerns\WithHeadings, \Maatwebsite\Excel\Concerns\WithStyles {
+                        private $data;
+                        
+                        public function __construct($data) {
+                            $this->data = $data;
+                        }
+                        
+                        public function collection() {
+                            return collect($this->data['prestasi_by_category'])->map(function($item, $index) {
+                                return [
+                                    'No' => $index + 1,
+                                    'Kategori' => $item->nama_kategori,
+                                    'Jenis' => ucfirst($item->jenis_prestasi),
+                                    'Tingkat Kompetisi' => ucfirst($item->tingkat_kompetisi),
+                                    'Total' => $item->total
+                                ];
+                            });
+                        }
+                        
+                        public function headings(): array {
+                            return ['No', 'Kategori', 'Jenis', 'Tingkat Kompetisi', 'Total'];
+                        }
+                        
+                        public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
+                            return [
+                                1 => ['font' => ['bold' => true]],
+                            ];
+                        }
+                    },
+                    'Per Kelas' => new class($this->data) implements \Maatwebsite\Excel\Concerns\FromCollection, \Maatwebsite\Excel\Concerns\WithHeadings, \Maatwebsite\Excel\Concerns\WithStyles {
+                        private $data;
+                        
+                        public function __construct($data) {
+                            $this->data = $data;
+                        }
+                        
+                        public function collection() {
+                            return collect($this->data['prestasi_by_class'])->map(function($item, $index) {
+                                return [
+                                    'No' => $index + 1,
+                                    'Kelas' => $item->nama_kelas,
+                                    'Total Siswa' => $item->total_siswa,
+                                    'Total Prestasi' => $item->total_prestasi,
+                                    'Rata-rata per Siswa' => $item->total_siswa > 0 ? round($item->total_prestasi / $item->total_siswa, 2) : 0
+                                ];
+                            });
+                        }
+                        
+                        public function headings(): array {
+                            return ['No', 'Kelas', 'Total Siswa', 'Total Prestasi', 'Rata-rata per Siswa'];
+                        }
+                        
+                        public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
+                            return [
+                                1 => ['font' => ['bold' => true]],
+                            ];
+                        }
+                    }
+                ];
+            }
+        }, 'laporan-sekolah-' . ($data['periode'] ? $data['periode']->nama_tahun_ajaran : 'semua') . '.xlsx');
     }
 
     private function generateComparisonExcel($data)
     {
-        return response()->json(['message' => 'Excel export not implemented yet']);
+        return Excel::download(new class($data) implements \Maatwebsite\Excel\Concerns\FromCollection, \Maatwebsite\Excel\Concerns\WithHeadings, \Maatwebsite\Excel\Concerns\WithStyles, \Maatwebsite\Excel\Concerns\WithTitle {
+            private $data;
+            
+            public function __construct($data) {
+                $this->data = $data;
+            }
+            
+            public function collection() {
+                return collect($this->data['comparison_data'])->map(function($item, $index) {
+                    return [
+                        'No' => $index + 1,
+                        'Tahun Ajaran' => $item['tahun_ajaran'],
+                        'Total Prestasi' => $item['total_prestasi'],
+                        'Akademik' => $item['prestasi_akademik'],
+                        'Non-Akademik' => $item['prestasi_non_akademik'],
+                        'Sekolah' => $item['competition_levels']['sekolah'] ?? 0,
+                        'Kabupaten' => $item['competition_levels']['kabupaten'] ?? 0,
+                        'Provinsi' => $item['competition_levels']['provinsi'] ?? 0,
+                        'Nasional' => $item['competition_levels']['nasional'] ?? 0,
+                        'Internasional' => $item['competition_levels']['internasional'] ?? 0
+                    ];
+                });
+            }
+            
+            public function headings(): array {
+                return ['No', 'Tahun Ajaran', 'Total Prestasi', 'Akademik', 'Non-Akademik', 'Sekolah', 'Kabupaten', 'Provinsi', 'Nasional', 'Internasional'];
+            }
+            
+            public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
+                return [
+                    1 => ['font' => ['bold' => true]],
+                ];
+            }
+            
+            public function title(): string {
+                return 'Perbandingan Multi-Tahun';
+            }
+        }, 'laporan-perbandingan-tahunan.xlsx');
+    }
+
+    // Methods for prestasi siswa page exports
+    public function generateStudentPortfolio(Siswa $siswa, Request $request)
+    {
+        $request->merge([
+            'siswa_id' => $siswa->id,
+            'format' => $request->get('format', 'pdf'),
+            'tahun_ajaran_id' => $request->get('tahun_ajaran_id')
+        ]);
+
+        return $this->generateStudentReport($request);
+    }
+
+    public function exportClassReport(Request $request)
+    {
+        $request->validate([
+            'kelas_id' => 'required|exists:kelas,id',
+            'format' => 'required|in:pdf,excel'
+        ]);
+
+        $request->merge([
+            'tahun_ajaran_id' => $request->get('tahun_ajaran_id')
+        ]);
+
+        return $this->generateClassReport($request);
+    }
+
+    public function exportYearlyReport(Request $request)
+    {
+        $request->validate([
+            'tahun_ajaran_id' => 'required|exists:tahun_ajaran,id',
+            'format' => 'required|in:pdf,excel'
+        ]);
+
+        return $this->generateSchoolReport($request);
     }
 }
