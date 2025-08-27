@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\TahunAjaran;
 use App\Models\KategoriPrestasi;
 use App\Models\SiswaEkskul;
+use App\Models\TingkatPenghargaan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -452,4 +453,212 @@ class AnalyticsController extends Controller
     private function getBudgetImplicationForecasts($currentYear, $timeHorizon) { return []; }
     private function getRiskAnalysisForecasts($currentYear, $timeHorizon) { return []; }
     private function getOpportunityForecasts($currentYear, $timeHorizon) { return []; }
+
+    // New methods to match admin analytics functionality for the view
+    public function multiYearComparison()
+    {
+        try {
+            // Get all academic years
+            $tahunAjarans = TahunAjaran::orderBy('nama_tahun_ajaran')->get();
+            
+            // Multi-year achievement comparison
+            $multiYearData = [];
+            foreach ($tahunAjarans as $tahun) {
+                $totalPrestasi = PrestasiSiswa::where('id_tahun_ajaran', $tahun->id)->count();
+                $prestasiAkademik = PrestasiSiswa::whereHas('kategoriPrestasi', function($q) {
+                    $q->where('jenis_prestasi', 'akademik');
+                })->where('id_tahun_ajaran', $tahun->id)->count();
+                
+                $prestasiNonAkademik = PrestasiSiswa::whereHas('kategoriPrestasi', function($q) {
+                    $q->where('jenis_prestasi', 'non_akademik');
+                })->where('id_tahun_ajaran', $tahun->id)->count();
+
+                $multiYearData[] = [
+                    'tahun' => $tahun->nama_tahun_ajaran,
+                    'total' => $totalPrestasi,
+                    'akademik' => $prestasiAkademik,
+                    'non_akademik' => $prestasiNonAkademik
+                ];
+            }
+
+            // Competition level data per year
+            $competitionLevelData = [];
+            foreach ($tahunAjarans as $tahun) {
+                $levels = PrestasiSiswa::select('kategori_prestasi.tingkat_kompetisi', DB::raw('count(*) as total'))
+                    ->join('kategori_prestasi', 'prestasi_siswa.id_kategori_prestasi', '=', 'kategori_prestasi.id')
+                    ->where('prestasi_siswa.id_tahun_ajaran', $tahun->id)
+                    ->where('prestasi_siswa.status', 'diterima')
+                    ->whereNotNull('kategori_prestasi.tingkat_kompetisi')
+                    ->groupBy('kategori_prestasi.tingkat_kompetisi')
+                    ->get();
+
+                foreach ($levels as $level) {
+                    $competitionLevelData[] = [
+                        'tahun' => $tahun->nama_tahun_ajaran,
+                        'tingkat_kompetisi' => $level->tingkat_kompetisi,
+                        'total' => $level->total
+                    ];
+                }
+            }
+
+            return response()->json([
+                'multiYearData' => $multiYearData,
+                'competitionLevelData' => $competitionLevelData
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function studentAnalysis($siswaId)
+    {
+        try {
+            $siswa = Siswa::with(['kelas', 'prestasi.kategoriPrestasi', 'prestasi.tingkatPenghargaan', 'prestasi.tahunAjaran'])
+                ->findOrFail($siswaId);
+
+            // Basic student info
+            $studentInfo = [
+                'nama' => $siswa->nama,
+                'nisn' => $siswa->nisn,
+                'kelas' => $siswa->kelas ? $siswa->kelas->nama_kelas : null,
+                'total_prestasi' => $siswa->prestasi->where('status', 'diterima')->count()
+            ];
+
+            // Achievement timeline (monthly aggregation)
+            $achievementTimeline = $siswa->prestasi()
+                ->select(DB::raw("DATE_FORMAT(tanggal_prestasi, '%Y-%m') as bulan"), DB::raw('count(*) as total'))
+                ->where('status', 'diterima')
+                ->groupBy('bulan')
+                ->orderBy('bulan')
+                ->get();
+
+            // Achievements by category
+            $achievementsByCategory = $siswa->prestasi()
+                ->select('kategori_prestasi.nama_kategori', DB::raw('count(*) as total'))
+                ->join('kategori_prestasi', 'prestasi_siswa.id_kategori_prestasi', '=', 'kategori_prestasi.id')
+                ->where('prestasi_siswa.status', 'diterima')
+                ->groupBy('kategori_prestasi.id', 'kategori_prestasi.nama_kategori')
+                ->get();
+
+            // Competition level distribution
+            $competitionLevelDistribution = $siswa->prestasi()
+                ->select('kategori_prestasi.tingkat_kompetisi', DB::raw('count(*) as total'))
+                ->join('kategori_prestasi', 'prestasi_siswa.id_kategori_prestasi', '=', 'kategori_prestasi.id')
+                ->where('prestasi_siswa.status', 'diterima')
+                ->whereNotNull('kategori_prestasi.tingkat_kompetisi')
+                ->groupBy('kategori_prestasi.tingkat_kompetisi')
+                ->get();
+
+            // Class ranking
+            $classRanking = [];
+            if ($siswa->kelas) {
+                $classRanking = Siswa::select('siswa.nama', 'siswa.id', 'kelas.nama_kelas as kelas', DB::raw('count(prestasi_siswa.id) as total_prestasi'))
+                    ->leftJoin('prestasi_siswa', function($join) {
+                        $join->on('siswa.id', '=', 'prestasi_siswa.id_siswa')
+                             ->where('prestasi_siswa.status', 'diterima');
+                    })
+                    ->leftJoin('kelas', 'siswa.id_kelas', '=', 'kelas.id')
+                    ->where('siswa.id_kelas', $siswa->id_kelas)
+                    ->groupBy('siswa.id', 'siswa.nama', 'kelas.nama_kelas')
+                    ->orderByDesc('total_prestasi')
+                    ->get();
+            }
+
+            return response()->json([
+                'student_info' => $studentInfo,
+                'achievement_timeline' => $achievementTimeline,
+                'achievements_by_category' => $achievementsByCategory,
+                'competition_level_distribution' => $competitionLevelDistribution,
+                'class_ranking' => $classRanking
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function extracurricularAnalysis(Request $request)
+    {
+        try {
+            $academicYear = $request->get('academic_year');
+            $currentYear = $academicYear ? TahunAjaran::find($academicYear) : TahunAjaran::where('is_active', true)->first();
+
+            // Extracurricular statistics
+            $ekstrakurikulerStats = Ekstrakurikuler::select(
+                    'ekstrakurikuler.nama_ekstrakurikuler',
+                    DB::raw('count(distinct siswa_ekskul.id_siswa) as total_participants'),
+                    DB::raw('count(prestasi_siswa.id) as total_achievements')
+                )
+                ->leftJoin('siswa_ekskul', 'ekstrakurikuler.id', '=', 'siswa_ekskul.id_ekstrakurikuler')
+                ->leftJoin('prestasi_siswa', function($join) use ($currentYear) {
+                    $join->on('siswa_ekskul.id_siswa', '=', 'prestasi_siswa.id_siswa')
+                         ->where('prestasi_siswa.status', 'diterima');
+                    if ($currentYear) {
+                        $join->where('prestasi_siswa.id_tahun_ajaran', $currentYear->id);
+                    }
+                })
+                ->groupBy('ekstrakurikuler.id', 'ekstrakurikuler.nama_ekstrakurikuler')
+                ->get();
+
+            // Participation by period
+            $participationByPeriod = SiswaEkskul::select(
+                    'siswa_ekskul.tahun_ajaran as periode',
+                    'ekstrakurikuler.nama_ekstrakurikuler',
+                    DB::raw('count(distinct siswa_ekskul.id_siswa) as total_participants')
+                )
+                ->join('ekstrakurikuler', 'siswa_ekskul.id_ekstrakurikuler', '=', 'ekstrakurikuler.id')
+                ->whereNotNull('siswa_ekskul.tahun_ajaran')
+                ->groupBy('siswa_ekskul.tahun_ajaran', 'ekstrakurikuler.id', 'ekstrakurikuler.nama_ekstrakurikuler')
+                ->orderBy('siswa_ekskul.tahun_ajaran')
+                ->get();
+
+            // Extracurricular achievements breakdown
+            $ekstrakurikulerAchievements = Ekstrakurikuler::select(
+                    'ekstrakurikuler.nama_ekstrakurikuler',
+                    DB::raw('sum(case when kategori_prestasi.jenis_prestasi = "akademik" then 1 else 0 end) as akademik'),
+                    DB::raw('sum(case when kategori_prestasi.jenis_prestasi = "non_akademik" then 1 else 0 end) as non_akademik'),
+                    DB::raw('count(prestasi_siswa.id) as total_achievements')
+                )
+                ->leftJoin('siswa_ekskul', 'ekstrakurikuler.id', '=', 'siswa_ekskul.id_ekstrakurikuler')
+                ->leftJoin('prestasi_siswa', function($join) use ($currentYear) {
+                    $join->on('siswa_ekskul.id_siswa', '=', 'prestasi_siswa.id_siswa')
+                         ->where('prestasi_siswa.status', 'diterima');
+                    if ($currentYear) {
+                        $join->where('prestasi_siswa.id_tahun_ajaran', $currentYear->id);
+                    }
+                })
+                ->leftJoin('kategori_prestasi', 'prestasi_siswa.id_kategori_prestasi', '=', 'kategori_prestasi.id')
+                ->groupBy('ekstrakurikuler.id', 'ekstrakurikuler.nama_ekstrakurikuler')
+                ->having('total_achievements', '>', 0)
+                ->get();
+
+            return response()->json([
+                'ekstrakurikuler_stats' => $ekstrakurikulerStats,
+                'participation_by_period' => $participationByPeriod,
+                'ekstrakurikuler_achievements' => $ekstrakurikulerAchievements
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function studentsList()
+    {
+        try {
+            $students = Siswa::select('siswa.id', 'siswa.nama', 'kelas.nama_kelas as kelas')
+                ->leftJoin('kelas', 'siswa.id_kelas', '=', 'kelas.id')
+                ->orderBy('siswa.nama')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'students' => $students
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
 }

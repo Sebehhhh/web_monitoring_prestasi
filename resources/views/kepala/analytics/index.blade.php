@@ -422,7 +422,7 @@ function initializeDashboard() {
         });
     
     // Load students list
-    fetch('{{ route("guru.analytics.students_list") }}')
+    fetch('{{ route("kepala.analytics.students_list") }}')
         .then(response => response.json())
         .then(data => {
             if (data.success) {
@@ -500,7 +500,7 @@ function loadAnalysis() {
 }
 
 function loadSchoolOverview(academicYear = null) {
-    fetch('{{ route("guru.analytics.school_performance") }}' + (academicYear ? `?academic_year=${academicYear}` : ''))
+    fetch('{{ route("kepala.analytics.school_performance") }}' + (academicYear ? `?academic_year=${academicYear}` : ''))
         .then(response => response.json())
         .then(data => {
             if (data.error) {
@@ -532,7 +532,7 @@ function loadSchoolOverview(academicYear = null) {
 }
 
 function loadMultiYearComparison() {
-    fetch('{{ route("guru.analytics.multi_year_comparison") }}')
+    fetch('{{ route("kepala.analytics.multi_year_comparison") }}')
         .then(response => response.json())
         .then(data => {
             if (data.error) {
@@ -554,7 +554,7 @@ function loadMultiYearComparison() {
 }
 
 function loadStudentAnalysis(studentId) {
-    fetch(`{{ url('guru/analytics/student-analysis') }}/${studentId}`)
+    fetch(`{{ url('kepala/analytics/student-analysis') }}/${studentId}`)
         .then(response => response.json())
         .then(data => {
             if (data.error) {
@@ -581,7 +581,7 @@ function loadStudentAnalysis(studentId) {
 }
 
 function loadExtracurricularAnalysis(academicYear = null) {
-    fetch('{{ route("guru.analytics.extracurricular_analysis") }}' + (academicYear ? `?academic_year=${academicYear}` : ''))
+    fetch('{{ route("kepala.analytics.extracurricular_analysis") }}' + (academicYear ? `?academic_year=${academicYear}` : ''))
         .then(response => response.json())
         .then(data => {
             if (data.error) {
